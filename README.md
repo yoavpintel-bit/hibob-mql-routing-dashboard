@@ -4,11 +4,16 @@ Single-page dashboard for Marketing & Sales: MQL cohort matched to Chili Piper C
 
 ## Live site
 
-After GitHub Pages deploys, open:
+After the GitHub Action runs successfully:
 
-`https://yoavpintel-bit.github.io/hibob-mql-routing-dashboard/`
+1. Repo → **Settings** → **Pages**
+2. **Build and deployment** → Source: **Deploy from a branch**
+3. Branch: **`gh-pages`** · Folder: **`/ (root)`** → **Save**
+4. Open (after ~1 min):
 
-(Replace org/user and repo name if you used a different repository name.)
+   **https://yoavpintel-bit.github.io/hibob-mql-routing-dashboard/**
+
+> **Note:** The first workflow run publishes files to the `gh-pages` branch. You only need step 1–3 once. If you prefer **GitHub Actions** as the Pages source instead, enable that under Settings → Pages, then switch the workflow back to `configure-pages` / `deploy-pages`.
 
 ## Update data
 
