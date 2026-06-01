@@ -120,14 +120,135 @@ function compareRows(a, b, key, dir) {
   return sa.localeCompare(sb) * mul;
 }
 
-function KpiCard({ label, value, sub, accent }) {
+const KPI_DEFS = {
+  cohort: {
+    calculation:
+      'Count of unique contact emails in the Salesforce MQL drilldown export (one row per MQL in the cohort).',
+    business:
+      'The full population Marketing & Sales asked to review — every MQL in scope for this analysis, regardless of Chili Piper activity.',
+  },
+  in_concierge: {
+    calculation:
+      'Contacts with at least one Concierge routing log in the exported window (MQL Inbound main router), matched by guest email.',
+    business:
+      'Leads that actually entered the inbound Chili Piper routing flow. Use this to see who was touched by Concierge vs. who never appeared in logs.',
+  },
+  meeting_scheduled: {
+    calculation:
+      'Contacts whose latest Concierge log status is "Meeting Scheduled" (most recent routing event per email).',
+    business:
+      'Prospects who completed scheduling in Chili Piper. Sales should expect a booked meeting; compare to SF "Meetings" for sync gaps.',
+  },
+  not_scheduled: {
+    calculation:
+      'Contacts whose latest Concierge status is "Meeting Not Scheduled" — routed and eligible but did not book on last touch.',
+    business:
+      'Qualified inbound interest that did not convert to a calendar booking (abandon, timeout, or left scheduling flow). Prime follow-up queue.',
+  },
+  catch_all: {
+    calculation:
+      'Contacts whose latest matched routing rule is "Catch All" (no active segment rule matched on last evaluation).',
+    business:
+      'Scenario F routing gap: employee count, region, or other attributes did not match a live rule. Needs MOPS / routing rule review.',
+  },
+  no_cp_log: {
+    calculation:
+      'Cohort emails with zero matches in the Concierge routing exports used for this report.',
+    business:
+      'MQLs with no visible inbound routing trail — may be outside the export date range, a different router, CRM-only MQL, or data lag. Investigate before assuming they were routed.',
+  },
+};
+
+function InfoTip({ calculation, business }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (!ref.current?.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
   return (
-    <div className={`rounded-xl border bg-white p-4 ${accent ? 'border-[#E2004F]/30' : 'border-[#EBE5D9]'}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-[#5A5755]">{label}</p>
-      <p className={`mt-1 text-3xl font-extrabold tabular-nums ${accent ? 'text-[#E2004F]' : 'text-[#222121]'}`}>
+    <span className="relative inline-flex shrink-0" ref={ref}>
+      <button
+        type="button"
+        aria-label="Metric definition"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="flex h-4 w-4 items-center justify-center rounded-full border border-[#EBE5D9] bg-[#FFFDF9] text-[10px] font-bold leading-none text-[#5A5755] hover:border-[#E2004F] hover:text-[#E2004F]"
+      >
+        i
+      </button>
+      {open ? (
+        <div
+          role="tooltip"
+          className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-[#EBE5D9] bg-white p-3 text-left shadow-lg normal-case"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-xs font-bold text-[#222121]">How it&apos;s calculated</p>
+          <p className="mt-1 text-xs leading-relaxed text-[#5A5755]">{calculation}</p>
+          <p className="mt-2 text-xs font-bold text-[#222121]">Business meaning</p>
+          <p className="mt-1 text-xs leading-relaxed text-[#5A5755]">{business}</p>
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
+function KpiCard({ kpiId, label, value, sub, accent, active, onToggle, info }) {
+  const clickable = Boolean(onToggle);
+  return (
+    <div
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? () => onToggle(kpiId) : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onToggle(kpiId);
+              }
+            }
+          : undefined
+      }
+      className={`rounded-xl border bg-white p-4 text-left transition-colors print:pointer-events-none ${
+        active
+          ? 'border-[#E2004F] ring-2 ring-[#E2004F]/25'
+          : accent
+            ? 'border-[#E2004F]/30'
+            : 'border-[#EBE5D9]'
+      } ${clickable ? 'cursor-pointer hover:border-[#E2004F]/50 hover:bg-[#FFFDF9]' : ''}`}
+      title={clickable ? 'Click to filter the table · click again to clear' : undefined}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#5A5755]">{label}</p>
+        {info ? <InfoTip calculation={info.calculation} business={info.business} /> : null}
+      </div>
+      <p
+        className={`mt-1 text-3xl font-extrabold tabular-nums ${
+          accent || active ? 'text-[#E2004F]' : 'text-[#222121]'
+        }`}
+      >
         {value}
       </p>
       {sub ? <p className="mt-1 text-xs text-[#5A5755]">{sub}</p> : null}
+      {active ? (
+        <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[#E2004F]">
+          Filtering table
+        </p>
+      ) : clickable ? (
+        <p className="mt-2 text-[10px] text-[#5A5755] opacity-0 transition-opacity group-hover:opacity-100 print:hidden">
+          Click to filter
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -322,6 +443,7 @@ function MqlDrilldownDashboard() {
   const [eeFilter, setEeFilter] = useState('all');
   const [sortKey, setSortKey] = useState('latestDate');
   const [sortDir, setSortDir] = useState('desc');
+  const [activeKpi, setActiveKpi] = useState(null);
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState(null);
 
@@ -419,6 +541,7 @@ function MqlDrilldownDashboard() {
       if (eeFilter !== 'all' && (r.employeeMicroSegment || 'missing') !== eeFilter) {
         return false;
       }
+      if (activeKpi === 'in_concierge' && !r.inConciergeLogs) return false;
       if (onlyCatchAll && r.latestRule !== 'Catch All') return false;
       if (onlyMismatch && !(r.latestStatus === 'Meeting Scheduled' && r.meetingsCol !== '1')) {
         return false;
@@ -451,6 +574,7 @@ function MqlDrilldownDashboard() {
     eeFilter,
     onlyCatchAll,
     onlyMismatch,
+    activeKpi,
   ]);
 
   const sorted = useMemo(() => {
@@ -483,9 +607,69 @@ function MqlDrilldownDashboard() {
     eeFilter,
     onlyCatchAll,
     onlyMismatch,
+    activeKpi,
     sortKey,
     sortDir,
   ]);
+
+  const clearChartFilters = () => {
+    setStatusFilter('all');
+    setRuleFilter('all');
+    setActiveKpi(null);
+  };
+
+  const clearAllFilters = () => {
+    clearChartFilters();
+    setOwnerFilter('all');
+    setCountryFilter('all');
+    setStateFilter('all');
+    setEeFilter('all');
+    setOnlyCatchAll(false);
+    setOnlyMismatch(false);
+    setQ('');
+  };
+
+  const toggleKpi = (id) => {
+    if (id === 'cohort') {
+      clearAllFilters();
+      return;
+    }
+    if (activeKpi === id) {
+      clearChartFilters();
+      return;
+    }
+    setActiveKpi(id);
+    setOnlyCatchAll(false);
+    setOnlyMismatch(false);
+    setStatusFilter('all');
+    setRuleFilter('all');
+    switch (id) {
+      case 'meeting_scheduled':
+        setStatusFilter('Meeting Scheduled');
+        break;
+      case 'not_scheduled':
+        setStatusFilter('Meeting Not Scheduled');
+        break;
+      case 'catch_all':
+        setRuleFilter('Catch All');
+        break;
+      case 'no_cp_log':
+        setStatusFilter('No Concierge log in exports');
+        break;
+      default:
+        break;
+    }
+  };
+
+  const kpiActive = (id) => {
+    if (activeKpi === id) return true;
+    if (id === 'meeting_scheduled' && statusFilter === 'Meeting Scheduled') return true;
+    if (id === 'not_scheduled' && statusFilter === 'Meeting Not Scheduled') return true;
+    if (id === 'catch_all' && ruleFilter === 'Catch All') return true;
+    if (id === 'no_cp_log' && statusFilter === 'No Concierge log in exports') return true;
+    if (id === 'in_concierge' && activeKpi === 'in_concierge') return true;
+    return false;
+  };
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const pageRows = sorted.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
@@ -521,20 +705,18 @@ function MqlDrilldownDashboard() {
   }, [summary]);
 
   const toggleStatusFromChart = (status) => {
+    setActiveKpi(null);
     setStatusFilter((prev) => (prev === status ? 'all' : status));
   };
 
   const toggleRuleFromChart = (rule) => {
+    setActiveKpi(null);
     setRuleFilter((prev) => (prev === rule ? 'all' : rule));
     if (rule === 'Catch All') setOnlyCatchAll(false);
   };
 
-  const clearChartFilters = () => {
-    setStatusFilter('all');
-    setRuleFilter('all');
-  };
-
-  const hasChartFilter = statusFilter !== 'all' || ruleFilter !== 'all';
+  const hasChartFilter =
+    statusFilter !== 'all' || ruleFilter !== 'all' || activeKpi != null;
 
   if (error) {
     return (
@@ -597,28 +779,61 @@ function MqlDrilldownDashboard() {
       </header>
 
       <main className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <KpiCard label="MQL contacts" value={summary.targetEmails} sub="Cohort size" />
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 print:hidden">
           <KpiCard
+            kpiId="cohort"
+            label="MQL contacts"
+            value={summary.targetEmails}
+            sub="Cohort size · click to show all"
+            active={!hasChartFilter && !q.trim()}
+            onToggle={toggleKpi}
+            info={KPI_DEFS.cohort}
+          />
+          <KpiCard
+            kpiId="in_concierge"
             label="In Concierge logs"
             value={summary.foundInConciergeExports}
             sub={`${Math.round((summary.foundInConciergeExports / summary.targetEmails) * 100)}% of cohort`}
+            active={kpiActive('in_concierge')}
+            onToggle={toggleKpi}
+            info={KPI_DEFS.in_concierge}
           />
           <KpiCard
+            kpiId="meeting_scheduled"
             label="Meeting scheduled (CP)"
             value={summary.statusBreakdown['Meeting Scheduled'] || 0}
             sub="Latest Concierge status"
             accent
+            active={kpiActive('meeting_scheduled')}
+            onToggle={toggleKpi}
+            info={KPI_DEFS.meeting_scheduled}
           />
           <KpiCard
+            kpiId="not_scheduled"
             label="Not scheduled (CP)"
             value={summary.statusBreakdown['Meeting Not Scheduled'] || 0}
+            active={kpiActive('not_scheduled')}
+            onToggle={toggleKpi}
+            info={KPI_DEFS.not_scheduled}
           />
-          <KpiCard label="Catch All" value={catchAllCount} sub="No segment rule matched" accent />
           <KpiCard
+            kpiId="catch_all"
+            label="Catch All"
+            value={catchAllCount}
+            sub="No segment rule matched"
+            accent
+            active={kpiActive('catch_all')}
+            onToggle={toggleKpi}
+            info={KPI_DEFS.catch_all}
+          />
+          <KpiCard
+            kpiId="no_cp_log"
             label="No CP log"
             value={summary.notFound}
             sub="Outside export window / other path"
+            active={kpiActive('no_cp_log')}
+            onToggle={toggleKpi}
+            info={KPI_DEFS.no_cp_log}
           />
         </section>
 
@@ -663,7 +878,16 @@ function MqlDrilldownDashboard() {
 
         {hasChartFilter ? (
           <section className="flex flex-wrap items-center gap-2 print:hidden">
-            <span className="text-xs font-semibold uppercase text-[#5A5755]">Chart filters:</span>
+            <span className="text-xs font-semibold uppercase text-[#5A5755]">Active filters:</span>
+            {activeKpi === 'in_concierge' ? (
+              <button
+                type="button"
+                onClick={() => toggleKpi('in_concierge')}
+                className="rounded-full border border-[#E2004F]/40 bg-[#E2004F]/10 px-3 py-1 text-xs font-semibold text-[#E2004F]"
+              >
+                KPI: In Concierge logs ×
+              </button>
+            ) : null}
             {statusFilter !== 'all' ? (
               <button
                 type="button"
@@ -684,10 +908,10 @@ function MqlDrilldownDashboard() {
             ) : null}
             <button
               type="button"
-              onClick={clearChartFilters}
+              onClick={clearAllFilters}
               className="text-xs font-semibold text-[#5A5755] underline hover:text-[#222121]"
             >
-              Clear all
+              Clear all filters
             </button>
           </section>
         ) : null}
@@ -744,7 +968,10 @@ function MqlDrilldownDashboard() {
             </select>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setActiveKpi(null);
+              }}
               className="rounded-lg border border-[#EBE5D9] px-3 py-2 text-sm"
             >
               {statuses.map((s) => (
@@ -755,7 +982,10 @@ function MqlDrilldownDashboard() {
             </select>
             <select
               value={ruleFilter}
-              onChange={(e) => setRuleFilter(e.target.value)}
+              onChange={(e) => {
+                setRuleFilter(e.target.value);
+                setActiveKpi(null);
+              }}
               className="max-w-xs rounded-lg border border-[#EBE5D9] px-3 py-2 text-sm"
             >
               {rules.slice(0, 80).map((s) => (
@@ -779,7 +1009,10 @@ function MqlDrilldownDashboard() {
               <input
                 type="checkbox"
                 checked={onlyCatchAll}
-                onChange={(e) => setOnlyCatchAll(e.target.checked)}
+                onChange={(e) => {
+                  setOnlyCatchAll(e.target.checked);
+                  setActiveKpi(null);
+                }}
               />
               Catch All only
             </label>
@@ -787,7 +1020,10 @@ function MqlDrilldownDashboard() {
               <input
                 type="checkbox"
                 checked={onlyMismatch}
-                onChange={(e) => setOnlyMismatch(e.target.checked)}
+                onChange={(e) => {
+                  setOnlyMismatch(e.target.checked);
+                  setActiveKpi(null);
+                }}
               />
               CP scheduled · SF meeting = 0
             </label>
