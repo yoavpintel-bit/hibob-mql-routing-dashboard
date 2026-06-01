@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>MQL Cohort — Chili Piper Routing Dashboard</title>
+  <script>
+    (function () {
+      var loc = window.location;
+      if (!loc.hostname.endsWith('github.io')) return;
+      var parts = loc.pathname.split('/').filter(Boolean);
+      if (!parts.length || /\.html$/i.test(parts[0])) return;
+      var base = document.createElement('base');
+      base.href = loc.origin + '/' + parts[0] + '/';
+      document.head.appendChild(base);
+    })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #FFFDF9; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #EBE5D9; border-radius: 10px; }
+    @media print {
+      .print\\:hidden { display: none !important; }
+      body { font-size: 10px; }
+      table { font-size: 9px; }
+      @page { margin: 12mm; }
+    }
+  </style>
+</head>
+<body class="bg-[#FFFDF9] text-[#222121] antialiased">
+  <div id="root"></div>
+  <script>
+    (function boot() {
+      var rootEl = document.getElementById('root');
+      var BUILD = '20260601mql3';
+      function showError(msg) {
+        rootEl.innerHTML =
+          '<div style="padding:2.5rem;font-family:system-ui;max-width:32rem;margin:0 auto">' +
+          '<h2 style="color:#E2004F;font-weight:800">Dashboard did not load</h2>' +
+          '<p style="color:#5A5755;margin-top:0.5rem">' + msg + '</p></div>';
+      }
+      function loadModule(path, readyKey) {
+        if (readyKey && window[readyKey]) return Promise.resolve();
+        if (typeof Babel === 'undefined') {
+          return Promise.reject(new Error('Babel failed to load. Check your network.'));
+        }
+        return fetch(path + '?v=' + BUILD, { cache: 'no-store' })
+          .then(function (r) {
+            if (!r.ok) throw new Error('Could not load ' + path + ' (' + r.status + ')');
+            return r.text();
+          })
+          .then(function (src) {
+            var code = Babel.transform(src, { presets: ['react', 'env'] }).code;
+            eval(code);
+          });
+      }
+      function mount() {
+        if (!window.React || !window.ReactDOM || !window.MqlDrilldownDashboard) return false;
+        ReactDOM.createRoot(rootEl).render(
+          React.createElement(window.MqlDrilldownDashboard)
+        );
+        return true;
+      }
+      function wait(attempt) {
+        if (mount()) return;
+        if (attempt > 120) {
+          showError('Timed out. Hard-refresh (Cmd+Shift+R).');
+          return;
+        }
+        setTimeout(function () { wait(attempt + 1); }, 50);
+      }
+      loadModule('js/mql-drilldown-dashboard.jsx', 'MqlDrilldownDashboard')
+        .catch(function (e) {
+          showError(e.message || String(e));
+        })
+        .finally(function () { wait(0); });
+    })();
+  </script>
+</body>
+</html>
