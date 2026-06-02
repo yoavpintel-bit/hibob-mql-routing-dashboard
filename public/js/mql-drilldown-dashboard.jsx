@@ -22,7 +22,13 @@ const STATUS_STYLES = {
   Disqualified: 'bg-slate-100 text-slate-800 border-slate-200',
   Cancelled: 'bg-rose-100 text-rose-900 border-rose-200',
   'Scheduling Meeting': 'bg-sky-100 text-sky-900 border-sky-200',
+  'No CP log (not Concierge and not Distro)': 'bg-stone-100 text-stone-600 border-stone-200',
   'No Concierge log in exports': 'bg-stone-100 text-stone-600 border-stone-200',
+};
+
+const TAG_STYLES = {
+  Concierge: 'bg-sky-100 text-sky-900 border-sky-200',
+  Distro: 'bg-violet-100 text-violet-900 border-violet-200',
 };
 
 function formatDate(iso) {
@@ -40,8 +46,31 @@ function formatDate(iso) {
 }
 
 function statusLabel(row) {
-  if (!row.inConciergeLogs) return 'No Concierge log in exports';
-  return row.latestStatus || 'Unknown';
+  if (row.inConciergeLogs) return row.latestStatus || 'Unknown';
+  if (row.inDistroLogs) {
+    return row.latestStatus?.startsWith('Distro')
+      ? row.latestStatus
+      : `Distro · ${row.distroStatus || 'Assigned'}`;
+  }
+  return 'No CP log (not Concierge and not Distro)';
+}
+
+function TagBadges({ tags }) {
+  if (!tags?.length) return <span className="text-xs text-[#5A5755]">—</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <span
+          key={t}
+          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+            TAG_STYLES[t] || 'bg-stone-100 text-stone-700 border-stone-200'
+          }`}
+        >
+          {t}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function sfYesNo(v) {
@@ -151,11 +180,17 @@ const KPI_DEFS = {
     business:
       'Scenario F routing gap: employee count, region, or other attributes did not match a live rule. Needs MOPS / routing rule review.',
   },
-  no_cp_log: {
+  no_trace: {
     calculation:
-      'Cohort emails with zero matches in the Concierge routing exports used for this report.',
+      'Cohort emails with no Concierge routing log and no Distro log match on account name (Search Fields in Distro export).',
     business:
-      'MQLs with no visible inbound routing trail — may be outside the export date range, a different router, CRM-only MQL, or data lag. Investigate before assuming they were routed.',
+      'True blind spots: no evidence in Concierge exports or Distro account-assignment logs. Investigate routing path, timing, or data gaps before outreach.',
+  },
+  distro_only: {
+    calculation:
+      'No Concierge log, but the lead\'s SF account name matches a Distro log entry (account-level Round Robin assignment from CP support export).',
+    business:
+      'Silent Distro path: account was assigned via backend Distro without an inbound Concierge form event. Rep may have received the account via ownership change, not a booked meeting.',
   },
 };
 
@@ -441,6 +476,7 @@ function MqlDrilldownDashboard() {
   const [countryFilter, setCountryFilter] = useState('all');
   const [stateFilter, setStateFilter] = useState('all');
   const [eeFilter, setEeFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
   const [sortKey, setSortKey] = useState('latestDate');
   const [sortDir, setSortDir] = useState('desc');
   const [activeKpi, setActiveKpi] = useState(null);
@@ -541,7 +577,17 @@ function MqlDrilldownDashboard() {
       if (eeFilter !== 'all' && (r.employeeMicroSegment || 'missing') !== eeFilter) {
         return false;
       }
+      if (tagFilter !== 'all') {
+        const tags = r.tags || [];
+        if (tagFilter === 'Neither') {
+          if (tags.length) return false;
+        } else if (!tags.includes(tagFilter)) {
+          return false;
+        }
+      }
       if (activeKpi === 'in_concierge' && !r.inConciergeLogs) return false;
+      if (activeKpi === 'distro_only' && !(r.inDistroLogs && !r.inConciergeLogs)) return false;
+      if (activeKpi === 'no_trace' && (r.inConciergeLogs || r.inDistroLogs)) return false;
       if (onlyCatchAll && r.latestRule !== 'Catch All') return false;
       if (onlyMismatch && !(r.latestStatus === 'Meeting Scheduled' && r.meetingsCol !== '1')) {
         return false;
@@ -572,6 +618,7 @@ function MqlDrilldownDashboard() {
     countryFilter,
     stateFilter,
     eeFilter,
+    tagFilter,
     onlyCatchAll,
     onlyMismatch,
     activeKpi,
@@ -605,6 +652,7 @@ function MqlDrilldownDashboard() {
     countryFilter,
     stateFilter,
     eeFilter,
+    tagFilter,
     onlyCatchAll,
     onlyMismatch,
     activeKpi,
@@ -624,6 +672,7 @@ function MqlDrilldownDashboard() {
     setCountryFilter('all');
     setStateFilter('all');
     setEeFilter('all');
+    setTagFilter('all');
     setOnlyCatchAll(false);
     setOnlyMismatch(false);
     setQ('');
@@ -653,8 +702,11 @@ function MqlDrilldownDashboard() {
       case 'catch_all':
         setRuleFilter('Catch All');
         break;
-      case 'no_cp_log':
-        setStatusFilter('No Concierge log in exports');
+      case 'no_trace':
+        setStatusFilter('No CP log (not Concierge and not Distro)');
+        break;
+      case 'distro_only':
+        setStatusFilter('all');
         break;
       default:
         break;
@@ -666,7 +718,8 @@ function MqlDrilldownDashboard() {
     if (id === 'meeting_scheduled' && statusFilter === 'Meeting Scheduled') return true;
     if (id === 'not_scheduled' && statusFilter === 'Meeting Not Scheduled') return true;
     if (id === 'catch_all' && ruleFilter === 'Catch All') return true;
-    if (id === 'no_cp_log' && statusFilter === 'No Concierge log in exports') return true;
+    if (id === 'no_trace' && statusFilter === 'No CP log (not Concierge and not Distro)') return true;
+    if (id === 'distro_only' && activeKpi === 'distro_only') return true;
     if (id === 'in_concierge' && activeKpi === 'in_concierge') return true;
     return false;
   };
@@ -680,6 +733,8 @@ function MqlDrilldownDashboard() {
       'Meeting Scheduled': '#10b981',
       'Meeting Not Scheduled': '#f59e0b',
       Disqualified: '#94a3b8',
+      'No CP log (not Concierge and not Distro)': '#78716c',
+      'Distro · Finished': '#8b5cf6',
       'No Concierge log in exports': '#d6d3d1',
       Cancelled: '#f43f5e',
       'Scheduling Meeting': '#0ea5e9',
@@ -753,9 +808,8 @@ function MqlDrilldownDashboard() {
                 MQL Cohort — Routing &amp; Meeting Intelligence
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-[#5A5755]">
-                {summary.targetEmails} MQL contacts from Salesforce drilldown, matched to Concierge
-                routing exports (MQL Inbound router). Use filters below; expand a row for the routing
-                journey.
+                {summary.targetEmails} MQL contacts matched to Concierge exports and Distro logs
+                (account name). Click KPI cards or charts to filter; expand rows for journey.
               </p>
             </div>
             <div className="flex flex-wrap gap-2 print:hidden">
@@ -779,7 +833,7 @@ function MqlDrilldownDashboard() {
       </header>
 
       <main className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 print:hidden">
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 print:hidden">
           <KpiCard
             kpiId="cohort"
             label="MQL contacts"
@@ -827,13 +881,23 @@ function MqlDrilldownDashboard() {
             info={KPI_DEFS.catch_all}
           />
           <KpiCard
-            kpiId="no_cp_log"
-            label="No CP log"
-            value={summary.notFound}
-            sub="Outside export window / other path"
-            active={kpiActive('no_cp_log')}
+            kpiId="distro_only"
+            label="Distro only"
+            value={summary.distroOnly ?? 0}
+            sub="Account assigned via Distro"
+            accent
+            active={kpiActive('distro_only')}
             onToggle={toggleKpi}
-            info={KPI_DEFS.no_cp_log}
+            info={KPI_DEFS.distro_only}
+          />
+          <KpiCard
+            kpiId="no_trace"
+            label="No trace"
+            value={summary.noTrace ?? 0}
+            sub="Not Concierge & not Distro"
+            active={kpiActive('no_trace')}
+            onToggle={toggleKpi}
+            info={KPI_DEFS.no_trace}
           />
         </section>
 
@@ -886,6 +950,24 @@ function MqlDrilldownDashboard() {
                 className="rounded-full border border-[#E2004F]/40 bg-[#E2004F]/10 px-3 py-1 text-xs font-semibold text-[#E2004F]"
               >
                 KPI: In Concierge logs ×
+              </button>
+            ) : null}
+            {activeKpi === 'distro_only' ? (
+              <button
+                type="button"
+                onClick={() => toggleKpi('distro_only')}
+                className="rounded-full border border-[#E2004F]/40 bg-[#E2004F]/10 px-3 py-1 text-xs font-semibold text-[#E2004F]"
+              >
+                KPI: Distro only ×
+              </button>
+            ) : null}
+            {activeKpi === 'no_trace' ? (
+              <button
+                type="button"
+                onClick={() => toggleKpi('no_trace')}
+                className="rounded-full border border-[#E2004F]/40 bg-[#E2004F]/10 px-3 py-1 text-xs font-semibold text-[#E2004F]"
+              >
+                KPI: No trace ×
               </button>
             ) : null}
             {statusFilter !== 'all' ? (
@@ -995,6 +1077,16 @@ function MqlDrilldownDashboard() {
               ))}
             </select>
             <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              className="max-w-[160px] rounded-lg border border-[#EBE5D9] px-3 py-2 text-sm"
+            >
+              <option value="all">All tags</option>
+              <option value="Concierge">Concierge</option>
+              <option value="Distro">Distro</option>
+              <option value="Neither">No tag</option>
+            </select>
+            <select
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
               className="max-w-xs rounded-lg border border-[#EBE5D9] px-3 py-2 text-sm"
@@ -1051,6 +1143,7 @@ function MqlDrilldownDashboard() {
                   <th className="px-3 py-3">SF qual.</th>
                   <th className="px-3 py-3">SF mtg</th>
                   <SortableHeader label="CP status" column="cpStatus" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <th className="px-3 py-3">Tags</th>
                   <SortableHeader label="Routing rule" column="latestRule" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Assignee" column="latestAssignedTo" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortableHeader label="Last activity" column="latestDate" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
@@ -1110,6 +1203,9 @@ function MqlDrilldownDashboard() {
                         <td className="px-3 py-2">
                           <StatusBadge status={st} />
                         </td>
+                        <td className="px-3 py-2">
+                          <TagBadges tags={row.tags} />
+                        </td>
                         <td className="px-3 py-2 max-w-[200px] truncate text-xs" title={row.latestRule}>
                           {row.latestRule || (row.inConciergeLogs ? '—' : 'No log')}
                         </td>
@@ -1120,7 +1216,7 @@ function MqlDrilldownDashboard() {
                       </tr>
                       {open ? (
                         <tr className="bg-[#FFFDF9] print:table-row">
-                          <td colSpan={14} className="px-6 py-4">
+                          <td colSpan={15} className="px-6 py-4">
                             <div className="grid gap-4 md:grid-cols-2">
                               <div>
                                 <h3 className="text-xs font-bold uppercase text-[#5A5755]">
